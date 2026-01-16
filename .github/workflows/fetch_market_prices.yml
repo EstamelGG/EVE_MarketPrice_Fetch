@@ -1,0 +1,63 @@
+name: Fetch Market Prices
+
+on:
+  schedule:
+    # 每60分钟执行一次（每小时的第0分钟）
+    - cron: '0 * * * *'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  fetch-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Run fetch script
+      run: |
+        python fetch_market_prices.py
+    
+    - name: Delete old releases
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # 获取所有releases的ID
+        releases=$(gh api repos/${{ github.repository }}/releases --jq '.[].id' || echo "")
+        
+        # 删除所有旧releases
+        if [ -n "$releases" ]; then
+          for release_id in $releases; do
+            echo "Deleting release ID: $release_id"
+            gh api repos/${{ github.repository }}/releases/$release_id -X DELETE || true
+          done
+          echo "所有旧releases已删除"
+        else
+          echo "没有找到旧的releases"
+        fi
+    
+    - name: Create new release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # 生成release名称（使用时间戳）
+        RELEASE_NAME="market-prices-$(date +%Y%m%d-%H%M%S)"
+        RELEASE_TITLE="Market Prices - $(date +'%Y-%m-%d %H:%M:%S')"
+        
+        # 创建新的release并上传文件
+        gh release create "$RELEASE_NAME" \
+          --title "$RELEASE_TITLE" \
+          --notes "自动生成的市场价格数据" \
+          output/market_prices.json
+        
+        echo "新release已创建: $RELEASE_NAME"
+
