@@ -3,7 +3,7 @@ name: Fetch Market Prices
 on:
   schedule:
     # 每60分钟执行一次（每小时的第0分钟）
-    - cron: '58 * * * *'
+    - cron: '57 * * * *'
   workflow_dispatch:  # 允许手动触发
 
 jobs:
