@@ -27,7 +27,7 @@ jobs:
       run: |
         python fetch_market_prices.py
     
-    - name: Delete old releases
+    - name: Delete old releases and tags
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
@@ -44,13 +44,17 @@ jobs:
         else
           echo "没有找到旧的releases"
         fi
+        
+        # 删除market-prices tag（如果存在）
+        echo "尝试删除旧的market-prices tag"
+        gh api -X DELETE repos/${{ github.repository }}/git/refs/tags/market-prices 2>/dev/null && echo "market-prices tag已删除" || echo "market-prices tag不存在，跳过删除"
     
     - name: Create new release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        # 生成release名称（使用时间戳）
-        RELEASE_NAME="market-prices-$(date +%Y%m%d-%H%M%S)"
+        # 使用固定的release名称
+        RELEASE_NAME="market-prices"
         RELEASE_TITLE="Market Prices - $(date +'%Y-%m-%d %H:%M:%S')"
         
         # 创建新的release并上传文件
@@ -59,5 +63,5 @@ jobs:
           --notes "自动生成的市场价格数据" \
           output/market_prices.json
         
-        echo "新release已创建: $RELEASE_NAME"
+        echo "Release已更新: $RELEASE_NAME"
 
