@@ -112,7 +112,7 @@ async def fetch_all_pages(concurrent: int = 50) -> List[Dict[str, Any]]:
     return all_data
 
 
-def process_orders(orders: List[Dict[str, Any]]) -> List[Dict[str, int]]:
+def process_orders(orders: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
     """
     处理订单数据：过滤、分组并计算最高买价和最低卖价
     
@@ -120,7 +120,8 @@ def process_orders(orders: List[Dict[str, Any]]) -> List[Dict[str, int]]:
         orders: 订单列表
         
     Returns:
-        处理后的数据列表，格式: [{"id": type_id, "b": buy_price, "s": sell_price}]
+        处理后的数据字典，格式: {type_id: {"b": buy_price, "s": sell_price}}
+        其中buy_price或sell_price为0时不包含对应字段，两者都为0时不包含该条目
     """
     # 1. 过滤 system_id = 30000142 的订单
     filtered_orders = [order for order in orders if order.get('system_id') == TARGET_SYSTEM_ID]
@@ -136,7 +137,7 @@ def process_orders(orders: List[Dict[str, Any]]) -> List[Dict[str, int]]:
     print(f"共 {len(orders_by_type)} 种不同的 type_id")
     
     # 3. 对每个 type_id，按 is_buy_order 分组并计算价格
-    result = []
+    result = {}
     for type_id, type_orders in orders_by_type.items():
         buy_orders = [o for o in type_orders if o.get('is_buy_order') is True]
         sell_orders = [o for o in type_orders if o.get('is_buy_order') is False]
@@ -147,27 +148,29 @@ def process_orders(orders: List[Dict[str, Any]]) -> List[Dict[str, int]]:
         # 计算最低卖价（卖单中价格最低的），如果没有卖单则为0
         min_sell_price = min([o['price'] for o in sell_orders]) if sell_orders else 0
         
-        # 构建结果对象，始终包含 b 和 s 字段
-        item = {
-            "id": type_id,
-            "b": max_buy_price,
-            "s": min_sell_price
-        }
+        # 如果两者都为0，则跳过该条目
+        if max_buy_price == 0 and min_sell_price == 0:
+            continue
         
-        result.append(item)
-    
-    # 按 type_id 排序
-    result.sort(key=lambda x: x['id'])
+        # 构建结果对象，只包含非0的字段
+        item = {}
+        if max_buy_price > 0:
+            item["b"] = max_buy_price
+        if min_sell_price > 0:
+            item["s"] = min_sell_price
+        
+        # 将type_id转换为字符串作为key
+        result[str(type_id)] = item
     
     return result
 
 
-def save_data(data: List[Dict[str, int]], output_dir: str = "output"):
+def save_data(data: Dict[str, Dict[str, int]], output_dir: str = "output"):
     """
     保存数据到文件
     
     Args:
-        data: 要保存的数据列表
+        data: 要保存的数据字典，格式: {type_id: {"b": buy_price, "s": sell_price}}
         output_dir: 输出目录
     """
     # 创建输出目录
