@@ -24,10 +24,27 @@ jobs:
         pip install -r requirements.txt
     
     - name: Run fetch script
+      id: fetch
       run: |
         python fetch_market_prices.py
-    
+        script_exit=$?
+        echo "exit_code=$script_exit" >> $GITHUB_OUTPUT
+        exit $script_exit
+      continue-on-error: true
+
+    - name: Fail on real API fault
+      if: steps.fetch.outputs.exit_code == '1'
+      run: |
+        echo "数据接口失败且 ESI 状态正常(players>0)，判定为真实故障"
+        exit 1
+
+    - name: Skip release when maintenance
+      if: steps.fetch.outputs.exit_code == '2'
+      run: |
+        echo "ESI 维护中或不可用，跳过本次发布"
+
     - name: Delete old releases and tags
+      if: steps.fetch.outputs.exit_code == '0'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
@@ -50,6 +67,7 @@ jobs:
         gh api -X DELETE repos/${{ github.repository }}/git/refs/tags/market-prices 2>/dev/null && echo "market-prices tag已删除" || echo "market-prices tag不存在，跳过删除"
     
     - name: Create new release
+      if: steps.fetch.outputs.exit_code == '0'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |

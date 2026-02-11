@@ -8,7 +8,8 @@ import aiohttp
 import asyncio
 import json
 import os
-from typing import List, Tuple, Dict, Any
+import sys
+from typing import List, Tuple, Dict, Any, Optional
 from collections import defaultdict
 
 # 请求头配置
@@ -21,6 +22,33 @@ TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 # 目标系统ID
 TARGET_SYSTEM_ID = 30000142
+
+# 退出码：0=成功 1=真实故障(需报错) 2=维护中(不报错但不发布)
+EXIT_SUCCESS = 0
+EXIT_REAL_FAILURE = 1
+EXIT_MAINTENANCE = 2
+
+
+async def check_esi_status() -> Optional[int]:
+    """
+    请求 ESI 状态接口，解析 players。
+    超时或无法解析时返回 None；成功时返回 players 数值（可能为 0）。
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://esi.evetech.net/status",
+                headers=HEADERS,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                response.raise_for_status()
+                data = await response.json()
+                players = data.get("players")
+                if players is not None and isinstance(players, (int, float)):
+                    return int(players)
+                return None
+    except Exception:
+        return None
 
 
 async def fetch_page(session: aiohttp.ClientSession, semaphore: asyncio.Semaphore, page: int) -> Tuple[int, List[Dict[str, Any]]]:
@@ -185,23 +213,37 @@ def save_data(data: Dict[str, Dict[str, int]], output_dir: str = "output"):
     print(f"总共处理了 {len(data)} 种商品的价格数据")
 
 
-async def main():
-    """主函数"""
-    print("开始获取EVE市场订单数据...")
-    
-    # 异步并发获取所有页面数据
-    all_orders = await fetch_all_pages(concurrent=50)
-    print(f"\n总共获取到 {len(all_orders)} 条订单")
-    
-    # 处理订单数据
-    processed_data = process_orders(all_orders)
-    
-    # 保存数据
-    save_data(processed_data)
-    
-    print("完成！")
+async def main() -> int:
+    """
+    主函数。返回退出码：
+    0=成功 1=真实故障(ESI 正常但数据接口失败) 2=维护中(不发布)
+    """
+    try:
+        print("开始获取EVE市场订单数据...")
+
+        # 异步并发获取所有页面数据
+        all_orders = await fetch_all_pages(concurrent=50)
+        print(f"\n总共获取到 {len(all_orders)} 条订单")
+
+        # 处理订单数据
+        processed_data = process_orders(all_orders)
+
+        # 保存数据
+        save_data(processed_data)
+
+        print("完成！")
+        return EXIT_SUCCESS
+    except Exception as e:
+        print(f"数据更新失败: {e}")
+        players = await check_esi_status()
+        if players is not None and players > 0:
+            print("ESI 状态正常(players>0)，判定为真实故障，action 将报错。")
+            return EXIT_REAL_FAILURE
+        print("ESI 不可用或 players=0，判定为维护中，本次不发布 release。")
+        return EXIT_MAINTENANCE
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    exit_code = asyncio.run(main())
+    sys.exit(exit_code)
 
